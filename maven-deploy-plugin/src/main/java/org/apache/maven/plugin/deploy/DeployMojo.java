@@ -19,13 +19,24 @@ package org.apache.maven.plugin.deploy;
  * under the License.
  */
 
+import java.io.File;
+import java.io.IOException;
+import java.io.Writer;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.ArtifactUtils;
-import org.apache.maven.artifact.DefaultArtifact;
 import org.apache.maven.artifact.deployer.ArtifactDeploymentException;
 import org.apache.maven.artifact.metadata.ArtifactMetadata;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.repository.layout.ArtifactRepositoryLayout;
+import org.apache.maven.artifact.repository.metadata.RepositoryMetadata;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -38,18 +49,6 @@ import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.artifact.ProjectArtifactMetadata;
 import org.codehaus.plexus.util.IOUtil;
 import org.codehaus.plexus.util.WriterFactory;
-
-import java.io.File;
-import java.io.IOException;
-import java.io.Writer;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Deploys an artifact to remote repository.
@@ -244,6 +243,7 @@ public class DeployMojo
             if ( "jar".equals( packaging ) && enableFlatPom )
             {
                 useFlatPom( request.getProject() );
+                artifact = request.getProject().getArtifact();
                 pomFile = request.getProject().getFile();
             }
             ArtifactMetadata metadata = new ProjectArtifactMetadata( artifact, pomFile );
@@ -383,27 +383,17 @@ public class DeployMojo
                 + " for project " + project.getName() );
         }
         project.setFile( flatPomFile );
-        Artifact artifact = project.getArtifact();
-        if ( artifact instanceof DefaultArtifact )
+        Artifact artifact = ArtifactUtils.copyArtifact( project.getArtifact() );
+        Collection metadataList = project.getArtifact().getMetadataList();
+        for ( ArtifactMetadata metadata : (Collection<ArtifactMetadata>) metadataList )
         {
-            ArtifactMetadata flatMetadata = new ProjectArtifactMetadata( artifact, flatPomFile );
-            try
+            if ( metadata instanceof RepositoryMetadata )
             {
-                Field fldMetadataMap = DefaultArtifact.class.getDeclaredField( "metadataMap" );
-                fldMetadataMap.setAccessible( true );
-                Map metadataMap = (Map) fldMetadataMap.get( artifact );
-                metadataMap.put( flatMetadata.getKey(), flatMetadata );
-            }
-            catch ( Exception e )
-            {
-                throw new MojoExecutionException( "Cannot add flat pom metadata. Artifact: " + artifact, e );
+                artifact.addMetadata( metadata );
             }
         }
-        else
-        {
-            throw new MojoExecutionException( "Artifact is not DefaultArtifact. Class name: "
-                + artifact.getClass().getName() + " Artifact: " + artifact );
-        }
+        artifact.addMetadata( new ProjectArtifactMetadata( artifact, flatPomFile ) );
+        project.setArtifact( artifact );
     }
 
     private static String getFlatPomDir( File baseDir )
